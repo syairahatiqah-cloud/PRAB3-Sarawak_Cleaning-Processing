@@ -952,19 +952,10 @@ if duplicate_count > 0:
         "The plot will show them, but review duplicates before final imputation."
     )
 
-cleaned_download_df = df.copy()
-cleaned_download_df[val_col] = series
-st.download_button(
-    "Download cleaned data (CSV)",
-    data=cleaned_download_df.to_csv(index=False).encode("utf-8"),
-    file_name=f"{val_col}_cleaned_missing_values.csv",
-    mime="text/csv"
-)
-
 # ============================================================
 # TABS
 # ============================================================
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["1) Raw Plot", "2) Missing Summary", "3) FSM Imputation", "4) Linear Interpolation", "5) Polynomial Interpolation"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["1) Raw Plot & Negative QC", "2) Missing Summary", "3) FSM Imputation", "4) Linear Interpolation", "5) Polynomial Interpolation"])
 
 # ============================================================
 # TAB 1) Raw time series (HTML + PNG) + SHOW PNG
@@ -1027,6 +1018,123 @@ with tab1:
         data=raw_png,
         file_name=f"{val_col}_raw_time_series.png",
         mime="image/png"
+    )
+
+    # --------------------------------------------------------
+    # Optional quality-control step: negative values
+    # --------------------------------------------------------
+    st.divider()
+    st.subheader("Optional Step — Check and Remove Negative Values")
+
+    negative_mask = series.notna() & (series < 0)
+    negative_count = int(negative_mask.sum())
+
+    if negative_count > 0:
+        st.warning(
+            f"Detected {negative_count} negative value(s) in '{val_col}'. "
+            "These values can be converted to missing values before the missing-data summary and imputation."
+        )
+
+        with st.expander("View rows containing negative values", expanded=False):
+            st.dataframe(
+                df.loc[negative_mask, [time_col, val_col]],
+                use_container_width=True
+            )
+
+        remove_negative_values = st.checkbox(
+            "Remove all negative values and treat them as missing (NaN)",
+            value=True,
+            help=(
+                "When selected, every value below 0 in the selected value column "
+                "is replaced with NaN. The missing summary and all imputation methods "
+                "will use this updated series."
+            )
+        )
+
+        if remove_negative_values:
+            series = series.mask(negative_mask, np.nan)
+            df[val_col] = series
+
+            st.success(
+                f"Removed {negative_count} negative value(s) and converted them to NaN. "
+                f"Updated total missing values: {int(series.isna().sum())}."
+            )
+
+            after_plot_x, after_plot_y = prepare_plot_series(
+                df[time_col], series, display_mode
+            )
+
+            after_negative_fig = go.Figure()
+            after_negative_fig.add_trace(go.Scatter(
+                x=after_plot_x,
+                y=after_plot_y,
+                mode="lines",
+                name="After negative-value removal",
+                connectgaps=False,
+                line=dict(color="green", width=1.2)
+            ))
+            after_negative_fig.update_layout(
+                title=(
+                    f"{data_type} Time Series After Removing Negative Values: "
+                    f"{val_col} ({display_mode})"
+                ),
+                xaxis_title="Date and Time",
+                yaxis_title=y_label,
+                hovermode="x unified"
+            )
+            st.plotly_chart(after_negative_fig, use_container_width=True)
+
+            st.download_button(
+                "Download plot after removing negative values (HTML)",
+                data=after_negative_fig.to_html(include_plotlyjs="cdn").encode("utf-8"),
+                file_name=f"{val_col}_after_negative_value_removal.html",
+                mime="text/html"
+            )
+
+            after_negative_png = line_png_bytes(
+                x=after_plot_x,
+                y_list=[after_plot_y.to_numpy()],
+                labels=["After negative-value removal"],
+                title=(
+                    f"{data_type} Time Series After Removing Negative Values: "
+                    f"{val_col} ({display_mode})"
+                ),
+                xlab="Date and Time",
+                ylab=y_label,
+                colors=["green"],
+                linestyles=["-"]
+            )
+            st.image(
+                after_negative_png,
+                caption="Time Series After Removing Negative Values",
+                use_container_width=True
+            )
+            st.download_button(
+                "Download plot after removing negative values (PNG)",
+                data=after_negative_png,
+                file_name=f"{val_col}_after_negative_value_removal.png",
+                mime="image/png"
+            )
+        else:
+            st.info(
+                "Negative values were retained. The missing summary and imputation "
+                "will continue using the negative values as observations."
+            )
+    else:
+        st.success(
+            f"No negative values were detected in '{val_col}'. "
+            "Proceed to the Missing Summary tab."
+        )
+
+    # This download reflects every selected cleaning step, including optional
+    # conversion of negative values to NaN.
+    processed_download_df = df.copy()
+    processed_download_df[val_col] = series
+    st.download_button(
+        "Download cleaned data after quality control (CSV)",
+        data=processed_download_df.to_csv(index=False).encode("utf-8"),
+        file_name=f"{val_col}_cleaned_after_quality_control.csv",
+        mime="text/csv"
     )
 
 # ============================================================
